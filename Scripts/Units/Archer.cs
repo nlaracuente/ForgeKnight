@@ -1,8 +1,5 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections;
 using UnityEngine;
-using System;
 
 /// <summary>
 /// Archer has a long range attacks aginst a single unit and 
@@ -26,15 +23,6 @@ public class Archer : PlayerUnit
     /// True when the special attack animation is at the point to fire off the projectile
     /// </summary>
     bool m_fireSpecialProjectile = false;
-
-    /// <summary>
-    /// Triggers the special timer to start
-    /// </summary>
-    public override void Init()
-    {
-        base.Init();
-        AIManager.instance.ResumeTimer(m_specialTimer);
-    }
 
     /// <summary>
     /// Spawns an arrow to attack enemies with
@@ -72,7 +60,7 @@ public class Archer : PlayerUnit
         GameObject go = GameManager.instance.SpawnProjectile(m_specialProjectile, m_projectileSpawnPoint);
 
         if (go != null && go.GetComponent<Projectile>() != null) {
-            int power = (int)(Stats.attackPower * m_specialProjectileMultiplier);
+            int power = (int)(Stats.GetStat(StatsId.Attack) * m_specialProjectileMultiplier);
             Projectile projectile = go.GetComponent<Projectile>();
             projectile.Fire(direction, power, typeof(EnemyUnit));
         }

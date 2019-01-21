@@ -41,7 +41,7 @@ public class PlayerStatsUIManager : MonoBehaviour
     /// <summary>
     /// Triggers a stat change to setup the UI
     /// </summary>
-    public void Init(UnitStats stats)
+    public void Init(StatData stats)
     {
         OnStatsChange(stats);
     }
@@ -50,27 +50,27 @@ public class PlayerStatsUIManager : MonoBehaviour
     /// Triggered on any unit stats change
     /// </summary>
     /// <param name="stats"></param>
-    public void OnStatsChange(UnitStats stats)
+    public void OnStatsChange(StatData stats)
     {
         if(m_healthBar != null) {
-            m_healthBar.CurrentHP = stats.hp;
-            m_healthBar.MaxHP = stats.maxHP;
+            m_healthBar.CurrentHP = stats.GetStat(StatsId.HP_Cur);
+            m_healthBar.MaxHP = stats.GetStat(StatsId.HP_Max);
         }
 
         if(m_attackBar != null) {
-            m_attackBar.SetBarText(stats.attackPower.ToString());
+            m_attackBar.SetBarText(stats.GetStat(StatsId.Attack).ToString());
         }
 
         if(m_specialBar != null) {
-            m_specialBar.SetBarText(stats.specialPower.ToString());
+            m_specialBar.SetBarText(stats.GetStat(StatsId.Special).ToString());
         }
 
         if(m_currentLevel != null) {
-            m_currentLevel.text = stats.level.ToString();
+            m_currentLevel.text = stats.Level.ToString();
         }
 
         if (m_experienceRequired != null) {
-            m_experienceRequired.text = stats.nextLevelExp.ToString();
+            m_experienceRequired.text = stats.NextLevelExp.ToString();
         }
     }
 }

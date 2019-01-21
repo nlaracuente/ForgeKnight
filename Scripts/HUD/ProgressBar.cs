@@ -33,10 +33,8 @@ public class ProgressBar : MonoBehaviour
     /// </summary>
     void Update()
     {
-        if(m_handler != null) {
-            UpdateBar();
-            UpdateText();
-        }       
+        UpdateBar();
+        UpdateText();
     }
 
     /// <summary>
@@ -44,7 +42,7 @@ public class ProgressBar : MonoBehaviour
     /// </summary>
     protected void UpdateBar()
     {
-        if (m_bar != null) {
+        if (m_bar != null && m_handler != null) {
             Vector3 localScale = m_bar.transform.localScale;
             m_bar.transform.localScale = new Vector3(
                 m_handler.Progress,
@@ -60,7 +58,7 @@ public class ProgressBar : MonoBehaviour
     /// <param name="text"></param>
     protected void UpdateText()
     {
-        if (m_barText != null) {
+        if (m_barText != null && m_handler != null) {
             m_barText.text = m_handler.Summary;
         }
     }

@@ -83,7 +83,7 @@ public class WaveManager : MonoBehaviour
     /// <summary>
     /// Keeps track of the next unit type to load
     /// </summary>
-    Queue<Type> m_nextType;
+    List<Type> m_nextType;
 
     /// <summary>
     /// Sets references
@@ -99,16 +99,12 @@ public class WaveManager : MonoBehaviour
     /// </summary>
     void Start()
     {
-        m_nextType = new Queue<Type>();
+        m_nextType = new List<Type>();
         m_waveGO = new GameObject("_WaveUnits");
 
         foreach (EnemyUnit unit in m_baseUnits) {
-            m_nextType.Enqueue(unit.GetType());
+            m_nextType.Add(unit.GetType());
             m_units.Add(unit.GetType().Name, unit.gameObject);
-        }
-
-        foreach (EnemyUnit unit in m_bossQueue) {
-            m_bossQueue.Enqueue(unit);
         }
     }
 
@@ -122,36 +118,20 @@ public class WaveManager : MonoBehaviour
     {
         m_waveQueue = new Queue<EnemyUnit>();
 
+        // We will use the average level of the party
+        // as the level of the enemy
+        int level = PartyManager.instance.AverageLevel * wave;
+
         // We are still showing the individual units
-        if (m_nextType.Count > 0) {
-            DequeueBaseUnit(wave, totalEnemies);
+        if (wave <= m_nextType.Count) {
+            DequeueBaseUnit(wave, level, totalEnemies);
         } else {
-            CreateRandomWave(wave, totalEnemies);
+            CreateRandomWave(level, totalEnemies);
         }
 
         m_activeUnits = new List<EnemyUnit>(m_waveQueue);
         UpdateWaveCounter(wave);
-    }
-
-    /// <summary>
-    /// Creates random units for the wave
-    /// </summary>
-    /// <param name="wave"></param>
-    /// <param name="totalEnemies"></param>
-    void CreateRandomWave(int wave, int totalEnemies)
-    {
-        for (int i = 0; i < totalEnemies; i++) {
-            // Select a random unit to create
-            int index = UnityEngine.Random.Range(0, m_baseUnits.Count);
-
-            EnemyUnit unit = BuildUnit(m_baseUnits[index].GetType().Name);
-            if (unit != null) {
-                int level = wave;
-                int nextEXP = EXPManager.instance.GetEXPForLevel(level + 1);
-                unit.SetStatsToLevel(level, unit.Stats.nextLevelExp);
-                m_waveQueue.Enqueue(unit);
-            }
-        }
+        EXPManager.instance.UpdateEnemyExpForWave(wave);
     }
 
     /// <summary>
@@ -159,16 +139,70 @@ public class WaveManager : MonoBehaviour
     /// </summary>
     /// <param name="wave"></param>
     /// <param name="totalEnemies"></param>
-    void DequeueBaseUnit(int wave, int totalEnemies)
+    void DequeueBaseUnit(int wave, int level, int totalEnemies)
     {
-        Type nextType = m_nextType.Dequeue();
+        Type nextType = m_nextType[wave - 1];
+
+        Dictionary<string, LevelUpMetada> levelData = new Dictionary<string, LevelUpMetada>();
 
         for (int i = 0; i < totalEnemies; i++) {
             EnemyUnit unit = BuildUnit(nextType.Name);
+
             if (unit != null) {
-                int level = wave;
-                int nextEXP = EXPManager.instance.GetEXPForLevel(level + 1);
-                unit.SetStatsToLevel(level, unit.Stats.nextLevelExp);
+
+                // Because stats are initialized on unit creation with random base values
+                // we want to zero them out so that each unit of the same type has the same values
+                unit.Stats.SetStatsToZero();
+
+                if (!levelData.ContainsKey(unit.name)) {
+                    levelData[unit.name] = unit.CreateLevelUp(level);
+                }
+
+                LevelUpMetada data = levelData[unit.name];
+
+                unit.LevelUp(data);
+
+                // Ensure we are using the max health from the level up
+                // as well as setting the starting HP to the max HP
+                unit.Stats[StatsId.HP_Max] = data.stats[StatsId.HP_Max];
+                unit.Stats[StatsId.HP_Cur] = unit.Stats[StatsId.HP_Max];
+
+                // Trigger stats change to update the health bars
+                unit.Stats = unit.Stats;
+
+                m_waveQueue.Enqueue(unit);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Creates random units for the wave
+    /// </summary>
+    /// <param name="wave"></param>
+    /// <param name="totalEnemies"></param>
+    void CreateRandomWave(int level, int totalEnemies)
+    {
+        // Keeps track of stats built for a specific unit type so that 
+        // all units of that types share the same stats
+        Dictionary<string, LevelUpMetada> levelData = new Dictionary<string, LevelUpMetada>();
+
+        for (int i = 0; i < totalEnemies; i++) {
+            // Select a random unit to create
+            int index = UnityEngine.Random.Range(0, m_baseUnits.Count);
+            EnemyUnit unit = BuildUnit(m_baseUnits[index].GetType().Name);
+
+            if (unit != null) {
+                // Because stats are initialized on unit creation with random base values
+                // we want to zero them out so that each unit of the same type has the same values
+                unit.Stats.SetStatsToZero();
+
+                if (!levelData.ContainsKey(unit.name)) {
+                    levelData[unit.name] = unit.CreateLevelUp(level);
+                }
+
+                LevelUpMetada data = levelData[unit.name];
+                unit.LevelUp(data);
+
                 m_waveQueue.Enqueue(unit);
             }
         }
@@ -182,7 +216,15 @@ public class WaveManager : MonoBehaviour
     {
         while (m_waveQueue.Count > 0 && !GameManager.instance.GameOver) {
             EnemyUnit unit = m_waveQueue.Dequeue();
-            unit.IsActive = true;
+            EnemyManager.instance.AddUnit(unit);
+
+            // Because stats calculation may still be happening
+            // We will wait for one frame before triggering a stats change
+            // to ensure that the UI for the enemy's HP updates at the right time
+            yield return new WaitForEndOfFrame();
+            unit.Stats = unit.Stats;
+
+            // Wait to spawn the next unit
             yield return new WaitForSeconds(m_waveFrequency);
         }
     }
@@ -223,8 +265,10 @@ public class WaveManager : MonoBehaviour
     /// <param name="unit"></param>
     public void EnemyDefeated(EnemyUnit unit)
     {
+        EnemyManager.instance.RemoveUnit(unit);
+
         if (m_activeUnits.Contains(unit)) {
-            m_activeUnits.Remove(unit);
+            m_activeUnits.Remove(unit);   
 
             if (m_activeUnits.Count < 1) {
                 GameManager.instance.WaveCompleted = true;
@@ -232,13 +276,15 @@ public class WaveManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Destroy all active units
+    /// </summary>
     public void DestroyCurrentWave()
     {
         foreach (EnemyUnit unit in FindObjectsOfType<EnemyUnit>()) {
-            unit.Stats.hp = 0;
-            unit.IsActive = false;
+            unit.Stats[StatsId.HP_Cur] = 0;
+            EnemyManager.instance.RemoveUnit(unit);
             Destroy(unit.gameObject);
-            GameManager.instance.WaveCompleted = true;
         }
     }
 }

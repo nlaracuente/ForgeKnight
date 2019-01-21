@@ -21,12 +21,15 @@ public class HealthProgressHandler : MonoBehaviour, IProgressHandler
         if(m_bar != null) {
             m_bar.Handler = this;
         }
+
+        // Prevents local scale being set to Infinity
+        CurrentHP = 0;
+        MaxHP = 0;
     }
 
     /// <summary>
     /// Unit's current HP
     /// </summary>
-    [SerializeField]
     public float CurrentHP { set; get; }
 
     /// <summary>

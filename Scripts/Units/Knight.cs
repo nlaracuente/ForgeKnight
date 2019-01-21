@@ -12,11 +12,17 @@ using UnityEngine;
 public class Knight : PlayerUnit
 {
     /// <summary>
+    /// Total enemies it can attack at once
+    /// </summary>
+    [SerializeField]
+    int m_totalUnitsToAttack = 5;
+
+    /// <summary>
     /// Trigger game over when the knight is no longer alive
     /// </summary>
     void Update()
     {
-        if(Stats.hp <= 0) {
+        if(IsActive && Stats[StatsId.HP_Cur] <= 0) {
             GameManager.instance.TriggerGameOver();
         }
     }
@@ -29,8 +35,14 @@ public class Knight : PlayerUnit
         List<Unit> targets = AIManager.instance.GetTargetsInRange(this);
         if (targets.Count > 0) {
             SetAnimatorTrigger("Attack");
-            Unit target = targets[0];
-            target.HurtAction(Damage);
+
+            int total = Math.Min(m_totalUnitsToAttack, targets.Count - 1);
+
+            foreach (Unit unit in targets.GetRange(0, total)) {
+                if(unit != null && unit.IsActive) {
+                    unit.HurtAction(Damage);
+                }
+            }
         }
 
         ResetTimer(m_attackTimer);

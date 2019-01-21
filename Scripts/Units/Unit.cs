@@ -1,7 +1,7 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System;
 using UnityEngine;
-using System;
+using System.Collections;
+using System.Collections.Generic;
 
 /// <summary>
 /// Interface base class for player and enemy units
@@ -43,22 +43,43 @@ public abstract class Unit : MonoBehaviour
     public LayerMask TargetLayer { get { return m_targetLayer; } }
 
     /// <summary>
-    /// Keeps track of the unit's stats when they are created
-    /// This is used for leveling up to determine their new stats
-    /// </summary>
-    [SerializeField]
-    protected UnitStats m_baseStats;
-
-    /// <summary>
     /// Unit's current stats
     /// </summary>
-    protected UnitStats m_stats;
-    public virtual UnitStats Stats
+    [SerializeField]
+    StatData m_stats;
+    public virtual StatData Stats
     {
-        get { return m_stats; }
+        get {
+            if (!m_stats.IsInitialized) {
+                m_stats.Init();
+            }
+
+            return m_stats;
+        }
         set {
             m_stats = value;
             OnStatsChanged();
+        }
+    }
+
+    /// <summary>
+    /// Experience growth rate
+    /// </summary>
+    [SerializeField, Tooltip("Base experience growth rate")]
+    protected GrowthRate m_experienceRate;
+    int m_baseExperience = 0;
+
+    /// <summary>
+    /// The base experience to use for this unit's growth
+    /// </summary>
+    public int BaseExperience
+    {
+        get {
+            if (m_baseExperience == 0) {
+                Dice dice = Growth.GetDiceForRate(m_experienceRate);
+                m_baseExperience = dice.Roll();
+            }
+            return m_baseExperience;
         }
     }
 
@@ -120,12 +141,14 @@ public abstract class Unit : MonoBehaviour
     /// <summary>
     /// A reference to the cooldown timer used to trigger attacks
     /// </summary>
+    [SerializeField]
     protected CoolDownTimer m_attackTimer;
     public CoolDownTimer AttackTimer { get { return m_attackTimer; } }
 
     /// <summary>
     /// A reference to the cooldown timer used to trigger specials
     /// </summary>
+    [SerializeField]
     protected CoolDownTimer m_specialTimer;
     public CoolDownTimer SpecialTimer { get { return m_specialTimer; } }
 
@@ -135,14 +158,28 @@ public abstract class Unit : MonoBehaviour
     public int Damage
     {
         get {
-            return Stats.attackPower;
+            return Stats.GetStat(StatsId.Attack);
         }
     }
 
     /// <summary>
     /// While true the enemy logic runs
     /// </summary>
-    public bool IsActive { get; set; }
+    bool m_isActive = false;
+    public virtual bool IsActive
+    {
+        get { return m_isActive; }
+        set {
+            m_isActive = value;
+
+            if (!m_isActive) {
+                StopAll();
+            } else {
+                AIManager.instance.ResumeTimer(m_attackTimer);
+                AIManager.instance.ResumeTimer(m_specialTimer);
+            }
+        }
+    }
 
     /// <summary>
     /// True when the animator notifies the unit to fire project
@@ -180,6 +217,24 @@ public abstract class Unit : MonoBehaviour
     protected abstract void Special();
 
     /// <summary>
+    /// Using the dice defined for each stats growth returns Stats with 
+    /// the results of the rolls for each growth dice
+    /// </summary>
+    /// <returns></returns>
+    StatData GetStatsGrowth()
+    {
+        StatData stats = new StatData();
+
+        foreach (KeyValuePair<StatsId, Dice> growth in Stats.Growths) {
+            StatsId id = growth.Key;
+            Dice dice = growth.Value;
+            stats[id] = dice.Roll();
+        }
+
+        return stats;
+    }
+
+    /// <summary>
     /// Allows the Awake() to be overriten
     /// We have to copy the stats to avoid override the originals as they are 
     /// scriptable objects and have permanent changes. Meaning changes in play mode
@@ -189,10 +244,7 @@ public abstract class Unit : MonoBehaviour
     {
         m_animator = GetComponent<Animator>();
 
-        // Clone the base stats so that they are not modified
-        UnitStats stats = Instantiate(m_baseStats) as UnitStats;
-        Stats = stats;
-
+        OnStatsChanged();
         SetupTimers();
 
         if(m_renderer == null) {
@@ -208,10 +260,8 @@ public abstract class Unit : MonoBehaviour
     protected virtual void Start()
     {
         // Ensures the unit's current HP is its max
-        Stats.hp = Stats.maxHP;
-
-        int nextLevel = Stats.level + 1;
-        Stats.nextLevelExp = EXPManager.instance.GetEXPForLevel(nextLevel);
+        Stats[StatsId.HP_Cur] = Stats[StatsId.HP_Max];
+        Stats.NextLevelExp = EXPManager.instance.NextLevelEXP(Stats.Level, BaseExperience);
         Init();
     }
 
@@ -222,8 +272,8 @@ public abstract class Unit : MonoBehaviour
     protected virtual void SetupTimers()
     {
         // Creates default timers
-        m_attackTimer = new CoolDownTimer(Stats.attackFrequency);
-        m_specialTimer = new CoolDownTimer(Stats.specialFrequency);
+        m_attackTimer = new CoolDownTimer(Stats[RateId.Attack]);
+        m_specialTimer = new CoolDownTimer(Stats[RateId.Special]);
 
         m_attackTimer.OnTimerCompletedAction = AttackAction;
         m_specialTimer.OnTimerCompletedAction = SpecialAction;
@@ -257,17 +307,18 @@ public abstract class Unit : MonoBehaviour
     IEnumerator WaitToInvokeTrigger(string trigger, string waitForTrigger, ActionDelegate Action)
     {
         // If special is being used ... wait
-        while (m_triggers.Contains(waitForTrigger)) {
+        while (m_triggers.Contains(waitForTrigger) && IsActive) {
             yield return null;
         }
 
         // Wait for a target to become available
-        List<Unit> targets = AIManager.instance.GetTargetsInRange(this);
-        while (IsActive && targets.Count < 1)
-        {
-            targets = AIManager.instance.GetTargetsInRange(this);
-            if (targets.Count < 1) {
-                yield return new WaitForEndOfFrame();
+        if (IsActive) {
+            List<Unit> targets = AIManager.instance.GetTargetsInRange(this);
+            while (IsActive && targets.Count < 1 && IsActive) {
+                targets = AIManager.instance.GetTargetsInRange(this);
+                if (targets.Count < 1) {
+                    yield return new WaitForEndOfFrame();
+                }
             }
         }
 
@@ -312,23 +363,27 @@ public abstract class Unit : MonoBehaviour
     /// <returns></returns>
     protected virtual IEnumerator FireProjectileRoutine(Vector3 direction, Type targetType)
     {
-        // Wait to spawn/fire projectile
-        m_fireProjectile = false;
+        if (IsActive) {
+            // Wait to spawn/fire projectile
+            m_fireProjectile = false;
 
-        // Play the animation and wait for it to be done
-        SetAnimatorTrigger("Attack");
-        while (!m_fireProjectile) {
-            yield return new WaitForEndOfFrame();
+            // Play the animation and wait for it to be done
+            SetAnimatorTrigger("Attack");
+            while (!m_fireProjectile && IsActive) {
+                yield return new WaitForEndOfFrame();
+            }
         }
 
-        GameObject go = GameManager.instance.SpawnProjectile(m_projectile, m_projectileSpawnPoint);
+        if (IsActive) {
+            GameObject go = GameManager.instance.SpawnProjectile(m_projectile, m_projectileSpawnPoint);
 
-        if (go != null && go.GetComponent<Projectile>() != null) {
-            Projectile projectile = go.GetComponent<Projectile>();
-            projectile.Fire(direction, Stats.attackPower, targetType);
+            if (go != null && go.GetComponent<Projectile>() != null) {
+                Projectile projectile = go.GetComponent<Projectile>();
+                projectile.Fire(direction, Stats.GetStat(StatsId.Attack), targetType);
+            }
+
+            ResetTimer(m_attackTimer);
         }
-
-        ResetTimer(m_attackTimer);
     }
 
     /// <summary>
@@ -346,8 +401,8 @@ public abstract class Unit : MonoBehaviour
     public virtual void HurtAction(int damage)
     {
         // Done this way to trigger the OnChange until we can come up with something better
-        UnitStats stats = Stats;
-        stats.hp = Mathf.Max(0, stats.hp - damage);
+        StatData stats = Stats;
+        stats[StatsId.HP_Cur] = Mathf.Max(0, stats[StatsId.HP_Cur] - damage);
         Stats = stats;
         
         DisplayDamage(damage);
@@ -394,18 +449,25 @@ public abstract class Unit : MonoBehaviour
     /// <returns></returns>
     IEnumerator FlashSpriteRoutine()
     {
-        if (!m_isFlashing) {
+        if (!m_isFlashing && IsActive) {
             m_isFlashing = true;
 
             m_renderer.material.color = m_flashColor;
             m_renderer.material.SetFloat("_FlashAmount", m_flashAmount);
 
             yield return new WaitForSeconds(m_flashDuration);
-
-            m_renderer.material.SetFloat("_FlashAmount", 0f);
-            m_renderer.material.color = Color.white;
-            m_isFlashing = false;
+            ResetFlashingEffect();
         }
+    }
+
+    /// <summary>
+    /// Ensures the unit is reset back to a normal state
+    /// </summary>
+    public void ResetFlashingEffect()
+    {
+        m_renderer.material.SetFloat("_FlashAmount", 0f);
+        m_renderer.material.color = Color.white;
+        m_isFlashing = false;
     }
 
     /// <summary>
@@ -443,31 +505,87 @@ public abstract class Unit : MonoBehaviour
     }
 
     /// <summary>
-    /// Triggers a level for this unit
-    /// Defaults to a single level but you can specify more
+    /// Increase the unit's current experience by the given number
+    /// Tirgers a level up while the current stats is greater than the exp required for the next level
     /// </summary>
-    public void SetStatsToLevel(int level, int nextEXP)
+    /// <param name="exp"></param>
+    public void AddExp(int exp)
     {
-        UnitStats stats = Stats;
+        Stats.Exp += exp;
 
-        float levelMultiplier = (float)Math.Pow(level, stats.levelUpMultiplier);
-        float frequencyMultiplier = (float)Math.Pow(level, stats.frequencyMultiplier);
+        while (Stats.Exp >= Stats.NextLevelExp) {
+            TriggerLevelUp();
+        }
+    }
 
-        // Make it stronger
-        stats.maxHP = (int)Mathf.Ceil((m_baseStats.maxHP * levelMultiplier));
-        stats.attackPower = (int)Mathf.Ceil((m_baseStats.attackPower * levelMultiplier));
-        stats.specialPower = (int)Mathf.Ceil((m_baseStats.specialPower * levelMultiplier));
+    /// <summary>
+    /// Increases the current level by a single level
+    /// </summary>
+    public void TriggerLevelUp()
+    {
+        LevelUpMetada data = CreateLevelUp(1);
+        LevelUp(data);
+    }
 
-        // Make it faster
-        //stats.attackFrequency = (int)Mathf.Ceil((m_baseStats.attackFrequency * frequencyMultiplier));
-        //stats.specialFrequency = (int)Mathf.Ceil((m_baseStats.specialFrequency * frequencyMultiplier));
-        //stats.movementSpeed = (int)Mathf.Ceil((m_baseStats.movementSpeed * frequencyMultiplier));
+    /// <summary>
+    /// Returns the information that represents the stats changes for adding
+    /// the given level number to the current level.
+    /// </summary>
+    /// <param name="level">How many levels to increase the unit by</param>
+    /// <returns></returns>
+    public LevelUpMetada CreateLevelUp(int level)
+    {
+        StatData stats = new StatData();
 
-        // Show they new level
-        stats.level = level;
-        stats.nextLevelExp = nextEXP;
+        // Increase the stats for each level
+        for (int i = 0; i < level; i++) {
+            foreach (KeyValuePair<StatsId, Dice> growth in Stats.Growths) {
+                StatsId id = growth.Key;
+                Dice dice = growth.Value;
+                stats[id] = dice.Roll();
+            }
+        }
 
-        // To trigger on stats changed
-        Stats = stats;
+        LevelUpMetada data = new LevelUpMetada(level, stats);
+
+        return data;
+    }
+
+    /// <summary>
+    /// Applies the level and stats changes presented in the level up metadata
+    /// Increases the total experience points required to level up for the next level
+    /// The increment of the current experience point happens prior to this call
+    /// </summary>
+    /// <param name="data"></param>
+    public void LevelUp(LevelUpMetada data)
+    {
+        Stats.Level += data.level;
+        Stats.Exp = Stats.NextLevelExp;
+        Stats.NextLevelExp = EXPManager.instance.NextLevelEXP(Stats.Level, BaseExperience);
+
+        foreach (KeyValuePair<StatsId, int> item in data.stats) {
+            StatsId id = item.Key;
+            int value = item.Value;
+            Stats[id] += value;
+        }
+
+        OnStatsChanged();
+    }
+    
+    /// <summary>
+    /// Helps with garbage collection forcing all coroutines to stop when the unit is not 
+    /// active which usually means the unit is dead
+    /// </summary>
+    protected void StopAll()
+    {
+        StopAllCoroutines();
+
+        if (m_attackTimer != null) {
+            m_attackTimer.StopTimer();
+        }
+
+        if (m_specialTimer != null) {
+            m_specialTimer.StopTimer();
+        }
     }
 }

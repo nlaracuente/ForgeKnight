@@ -1,10 +1,12 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System;
 using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Manages the player's EXP currency 
+/// Manages the current accumulated experience point, the required experience to level up,
+/// and the ui to show experience points and option to sacrafice them
 /// </summary>
 public class EXPManager : MonoBehaviour
 {
@@ -32,40 +34,41 @@ public class EXPManager : MonoBehaviour
     Text m_requiredEXPText;
 
     /// <summary>
+    /// A reference to the text component that displays how much EXP is earned by clicking
+    /// </summary>
+    [SerializeField]
+    Text m_clickToEarnText;
+
+    /// <summary>
     /// Minimum required experience for the next level
     /// </summary>
     [SerializeField, Tooltip("Minimum required EXP for next level")]
-    int m_baseEXP = 30;
+    int m_baseExp = 30;
 
     /// <summary>
     /// The exponent to determine next level experience cost
     /// </summary>
     [SerializeField, Tooltip("Next level experience cost multiplier")]
-    float m_EXPMultiplier = 1.5f;
+    float m_exponent = 1.5f;
 
     /// <summary>
-    /// The message that lets player know how much sacrifice costs and what it provides
-    /// </summary>
-    [SerializeField, Tooltip("Keep the {0} and {1} so that they can be changed into values")]
-    string m_messageFormat = "Sacrifice {0} EXP to get {1}% more exp from defeated enemy units.";
-
-    /// <summary>
-    /// How many EXPs must be sacrificed to earn more
+    /// Required experience point sacrifice to increase total EXP received
     /// </summary>
     [SerializeField]
     int m_sacrificeCost = 50;
 
-    /// <summary>
-    /// How much to increase the sacrifice each time it is consumed
-    /// </summary>
-    [SerializeField, Tooltip("Sacrifice cost increase in percentage")]
-    float m_costMultiplier = 1.25f;
-
-    /// <summary>
+    /// <summary>    
     /// How much EXP is rewarded when the player clicks to earn EXP
     /// </summary>
     [SerializeField, Tooltip("How much EXP to reward on click")]
     int m_clickEXP = 1;
+    public int ClickExp { get{ return m_clickEXP; } }
+
+    /// <summary>
+    /// Used to help determine the cost required to further increase
+    /// the exp per clicks next level cost
+    /// </summary>
+    int m_clickExpLvl = 1;
 
     /// <summary>
     /// How much EXP each enemy will reward when defeated
@@ -74,10 +77,10 @@ public class EXPManager : MonoBehaviour
     int m_enemyEXP = 1;
 
     /// <summary>
-    /// Enemy EXP reward multiplier
+    /// EXP per clicks
     /// </summary>
-    [SerializeField, Range(.25f, 100f), Tooltip("How much each sacrifice increases enemy EXP in percentage")]
-    float m_enemyEXPMultiplier = 2f;
+    [SerializeField]
+    float m_expPerCliksMultiplier = 1.25f;
 
     /// <summary>
     /// A reference to the sacrifice button that the player clicks to trigger a sacrifice
@@ -92,13 +95,26 @@ public class EXPManager : MonoBehaviour
     int m_exp = 0;
     public int EXP { get { return m_exp; } }
 
-	/// <summary>
+    /// <summary>
+    /// The message that lets player know how much sacrifice costs and what it provides
+    /// </summary>
+    [SerializeField]
+    string m_messageFormat = "Sacrifice {0} EXP to get {1} more exp from defeated enemy units.";
+
+    /// <summary>
+    /// The message that lets player know how much experience per click they earn
+    /// </summary>
+    [SerializeField]
+    string m_clickToEarnFormat = "Click on screen to earn {0} Exp";
+
+    /// <summary>
     /// Sets up the singleton
     /// </summary>
-	void Awake ()
+    void Awake ()
     {
         instance = this;
-	}
+        m_sacrificeCost = NextLevelEXP(m_clickExpLvl++);
+    }
 
     /// <summary>
     /// Updates the experience ui display
@@ -110,16 +126,20 @@ public class EXPManager : MonoBehaviour
         }
 
         if (m_sacrificeText != null) {
-            m_sacrificeText.text = string.Format(m_messageFormat, m_enemyEXPMultiplier);
+            m_sacrificeText.text = string.Format(m_messageFormat, m_expPerCliksMultiplier);
         }
 
         if (m_requiredEXPText != null) {
             m_requiredEXPText.text = m_sacrificeCost.ToString();
         }
 
+        if (m_clickToEarnText != null) {
+            m_clickToEarnText.text = string.Format(m_clickToEarnFormat, m_clickEXP.ToString());
+        }
+
         // Enables/Disables the sacrifice button
         // base on the current total exp
-        if(m_sacrificeButton != null) {
+        if (m_sacrificeButton != null) {
            m_sacrificeButton.interactable = CanConsumeEXP(m_sacrificeCost);
         }
     }
@@ -170,6 +190,16 @@ public class EXPManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Given the wave number updates the exp rewarded by defeated enemies
+    /// </summary>
+    /// <param name="wave"></param>
+    public void UpdateEnemyExpForWave(int wave)
+    {
+        //m_enemyEXP = NextSacrificeExp(wave);
+        m_enemyEXP = wave;
+    }
+
+    /// <summary>
     /// Player made a sacrifice to earn more EXP
     /// increase the total EXP received per enemey defeated
     /// decreases total exp by sacrifice amount
@@ -178,8 +208,8 @@ public class EXPManager : MonoBehaviour
     public void SacrificeMade()
     {
         if (ConsumeEXP(m_sacrificeCost)) {
-            m_sacrificeCost = (int)Mathf.Round(m_sacrificeCost * m_costMultiplier);
-            m_enemyEXP = (int)Mathf.Ceil(m_enemyEXP * m_enemyEXPMultiplier);            
+            m_clickEXP = Mathf.CeilToInt(m_clickEXP * m_expPerCliksMultiplier);
+            m_sacrificeCost = NextLevelEXP(m_clickExpLvl++);
         }
     }
 
@@ -192,18 +222,16 @@ public class EXPManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Triggers the given unit to level up when the unit's next level exp can be consumed
+    /// Triggers the given unit to level up when the current experience points 
+    /// equals to or is greater than the unit's required experience to level up
     /// </summary>
     /// <param name="unit"></param>
-    public void LevelUp(PlayerUnit unit)
+    public void PlayerUnitLevelUp(PlayerUnit unit)
     {
-        int exp = unit.Stats.nextLevelExp;        
+        int exp = unit.Stats.NextLevelExp;
 
         if (ConsumeEXP(exp)) {
-            int level = unit.Stats.level + 1;
-            int nextEXP = GetEXPForLevel(level + 1);
-            
-            unit.SetStatsToLevel(level, nextEXP);
+            unit.TriggerLevelUp();
         }
     }
 
@@ -212,8 +240,20 @@ public class EXPManager : MonoBehaviour
     /// </summary>
     /// <param name="level"></param>
     /// <returns></returns>
-    public int GetEXPForLevel(int level)
+    public int NextLevelEXP(int level, int baseExp = 10)
     {
-        return Mathf.FloorToInt(m_baseEXP * Mathf.Pow(level, m_EXPMultiplier));
+        float exp = (float)Math.Floor(baseExp * Math.Pow(level, m_exponent));
+        return Mathf.RoundToInt(exp);
+    }
+
+    /// <summary>
+    /// Pokemon style experience
+    /// </summary>
+    /// <param name="level"></param>
+    /// <returns></returns>
+    public int NextSacrificeExp(int level)
+    {
+        float exp = (float)Math.Round(4 * Math.Pow(level, m_exponent)) / 5;
+        return Mathf.RoundToInt(exp);
     }
 }

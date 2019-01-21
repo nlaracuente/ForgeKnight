@@ -65,6 +65,10 @@ public class AIManager : MonoBehaviour
     /// <param name="unit"></param>
     public void EnemyMoveLogic(EnemyUnit unit)
     {
+        if (!unit.IsActive) {
+            return;
+        }
+
         Vector3 destination = new Vector3(
             m_enemyDestination.position.x,
             unit.transform.position.y,
@@ -96,7 +100,7 @@ public class AIManager : MonoBehaviour
     /// <param name="destination"></param>
     void MoveEnemyUnit(EnemyUnit unit, Vector3 destination)
     {
-        Vector3 position = Vector3.MoveTowards(unit.transform.position, destination, unit.Stats.movementSpeed * Time.deltaTime);
+        Vector3 position = Vector3.MoveTowards(unit.transform.position, destination, unit.Stats[RateId.Movement] * Time.deltaTime);
         unit.transform.position = position;
         unit.IsMoving = true;
 

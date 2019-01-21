@@ -22,11 +22,43 @@ public class PartyManager : MonoBehaviour
     /// </summary>
     [SerializeField]
     List<PlayerUnit> m_party = new List<PlayerUnit>();
+    List<PlayerUnit> Party
+    {
+        get {
+            if (m_party == null) {
+                m_party = new List<PlayerUnit>();
+            }
+            return m_party;
+        }
+        set { m_party = value; }
+    }
 
-	/// <summary>
+    /// <summary>
+    /// Returns the average party level
+    /// </summary>
+    public int AverageLevel
+    {
+        get {
+            int mean = 1;
+
+            if (m_party.Count > 0) {
+                int total = 0;
+                foreach (PlayerUnit unit in m_party) {
+                    total += unit.Stats.Level;
+                }
+
+                float avg = total / m_party.Count;
+                mean = Mathf.RoundToInt(avg);
+            }
+
+            return mean;
+        }
+    }
+
+    /// <summary>
     /// Sets up the reference
     /// </summary>
-	void Awake ()
+    void Awake ()
     {
         instance = this;
     }
@@ -38,14 +70,52 @@ public class PartyManager : MonoBehaviour
     /// <param name="amount"></param>
 	public void HealParty(int amount)
     {
-        m_party.ForEach(x => {
-            UnitStats stats = x.Stats;
-            int newHP = Mathf.Min(stats.hp + amount, stats.maxHP);
-            stats.hp = newHP;
+        Party.ForEach(unit => {
+            StatData stats = unit.Stats;
+            int newHP = Mathf.Min(stats[StatsId.HP_Cur] + amount, stats[StatsId.HP_Max]);
+            stats[StatsId.HP_Cur] = newHP;
 
             // Triggers the UI change
-            x.Stats = stats;
-            x.DisplayHealing(amount);
+            unit.Stats = stats;
+            unit.DisplayHealing(amount);
+        });
+    }
+
+    /// <summary>
+    /// Restores party's health back to 100%
+    /// </summary>
+    public void ReviveParty()
+    {
+        Party.ForEach(unit => {
+            StatData stats = unit.Stats;
+            stats[StatsId.HP_Cur] = stats[StatsId.HP_Max];
+
+            // Triggers the UI change
+            unit.Stats = stats;
+            unit.ResetTimers();
+            unit.DisplayHealing(stats[StatsId.HP_Max]);
+            unit.ResetFlashingEffect();
+            unit.IsActive = true;
+        });
+    }
+
+    /// <summary>
+    /// Triggers all party members to be marked as disabled
+    /// </summary>
+    public void DisableParty()
+    {
+        Party.ForEach(unit => {
+            unit.IsActive = false;
+        });
+    }
+
+    /// <summary>
+    /// Triggels all party members to be marked as active
+    /// </summary>
+    public void ActivateParty()
+    {
+        Party.ForEach(unit => {
+            unit.IsActive = true;
         });
     }
 }

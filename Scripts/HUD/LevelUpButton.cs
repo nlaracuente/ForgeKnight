@@ -44,7 +44,7 @@ public class LevelUpButton : MonoBehaviour, IPointerUpHandler
     void Update()
     {
         if(m_button != null) {
-            int exp = m_unit.Stats.nextLevelExp;
+            int exp = m_unit.Stats.NextLevelExp;
             m_button.interactable = EXPManager.instance.CanConsumeEXP(exp);
         }
     }
@@ -56,7 +56,7 @@ public class LevelUpButton : MonoBehaviour, IPointerUpHandler
     public void OnPointerUp(PointerEventData eventData)
     {
         if (m_button != null) {
-            EXPManager.instance.LevelUp(m_unit);
+            EXPManager.instance.PlayerUnitLevelUp(m_unit);
         }
     }
 }

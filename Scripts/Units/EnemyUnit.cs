@@ -1,7 +1,6 @@
 ﻿using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
-using System;
 
 /// <summary>
 /// Base class for all enemy units including bosses
@@ -43,26 +42,12 @@ public abstract class EnemyUnit : Unit
     }
 
     /// <summary>
-    /// Runs the AI for this enemey
-    /// </summary>
-    protected virtual void LateUpdate()
-    {
-        if (IsActive) {
-            AIManager.instance.EnemyMoveLogic(this);
-            AIManager.instance.AttackLogic(this);
-        }
-    }
-
-    /// <summary>
     /// Initializes the attack timer
     /// </summary>
     public override void Init()
     {
         m_origin = transform.position;
         m_targetLayer = 1 << LayerMask.NameToLayer("PlayerUnit");
-
-        // Updates the healthbar
-        OnStatsChanged();
     }
 
     /// <summary>
@@ -71,8 +56,8 @@ public abstract class EnemyUnit : Unit
     protected override void OnStatsChanged()
     {
         if (m_healthBar != null) {
-            m_healthBar.CurrentHP = Stats.hp;
-            m_healthBar.MaxHP = Stats.maxHP;
+            m_healthBar.CurrentHP = Stats[StatsId.HP_Cur];
+            m_healthBar.MaxHP = Stats[StatsId.HP_Max];
         }
     }
 
@@ -81,7 +66,7 @@ public abstract class EnemyUnit : Unit
     /// </summary>
     protected override void Attack()
     {
-        MeeleAttack();
+        SetAnimatorTrigger("Attack");
     }
 
     /// <summary>
@@ -92,7 +77,6 @@ public abstract class EnemyUnit : Unit
     {
         List<Unit> targets = AIManager.instance.GetTargetsInRange(this);
         if (targets.Count > 0) {
-            SetAnimatorTrigger("Attack");
             Unit target = targets[0];
             target.HurtAction(Damage);
         }
@@ -103,10 +87,7 @@ public abstract class EnemyUnit : Unit
     /// <summary>
     /// Enemies do not have specials
     /// </summary>
-    protected override void Special()
-    {
-        
-    }
+    protected override void Special() { }
 
     /// <summary>
     /// Triggers death for testing purposes
@@ -117,7 +98,7 @@ public abstract class EnemyUnit : Unit
         base.HurtAction(damage);
         
         // Defeated
-        if (Stats.hp <= 0) {
+        if (Stats[StatsId.HP_Cur] <= 0) {
             TriggerDeath();
         }
     }

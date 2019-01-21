@@ -18,15 +18,6 @@ public class Mage : PlayerUnit
     Transform[] m_spawnPoints;
 
     /// <summary>
-    /// Triggers the special timer to start
-    /// </summary>
-    public override void Init()
-    {
-        base.Init();
-        AIManager.instance.ResumeTimer(m_specialTimer);
-    }
-
-    /// <summary>
     /// Triggers customer fire projectile routine  
     /// </summary>
     protected override void Attack()
@@ -53,7 +44,7 @@ public class Mage : PlayerUnit
 
             if (go != null && go.GetComponent<Projectile>() != null) {
                 Projectile projectile = go.GetComponent<Projectile>();
-                projectile.Fire(direction, Stats.attackPower, targetType);
+                projectile.Fire(direction, Stats.GetStat(StatsId.Attack), targetType);
             }
         }
 
@@ -67,7 +58,7 @@ public class Mage : PlayerUnit
     protected override void Special()
     {
         SetAnimatorTrigger("Special");
-        PartyManager.instance.HealParty(Stats.specialPower);
+        PartyManager.instance.HealParty(Stats[StatsId.Special]);
         ResetTimer(m_specialTimer);
         AIManager.instance.ResumeTimer(m_specialTimer);
     }
